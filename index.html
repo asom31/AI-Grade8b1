@@ -45,7 +45,46 @@ nav button:disabled{opacity:.35}nav span{flex:1;text-align:center;color:var(--mu
 #registrationScreen .error{color:#c62828;font-weight:600;min-height:1.4em;margin-top:.5em}
 .student-banner{position:fixed;top:10px;right:12px;z-index:1000;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:.35em .8em;color:var(--mute);font-size:.9rem;box-shadow:0 2px 8px rgba(0,0,0,.08)}
 .finish-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+/* Teacher dashboard */
+#teacherDashboard{display:none;position:fixed;inset:0;z-index:10000;background:var(--bg);color:var(--ink);padding:4vh 5vw;overflow:auto}
+.dashboard-wrap{max-width:1100px;margin:0 auto}
+.dashboard-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
+.dashboard-actions{display:flex;gap:.6rem;flex-wrap:wrap}
+.dashboard-actions button{background:var(--g);color:#fff;border:0;border-radius:10px;padding:.65em 1em;font-weight:700;cursor:pointer}
+.dashboard-actions .secondary{background:var(--card);color:var(--ink);border:2px solid var(--line)}
+.dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1rem 0}
+.stat-card{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:1rem}
+.stat-card b{display:block;font-size:1.8rem;color:var(--g)}
+.dashboard-table{width:100%;border-collapse:collapse;background:var(--card);border:2px solid var(--line);border-radius:14px;overflow:hidden}
+.dashboard-table th,.dashboard-table td{padding:.7rem;border-bottom:1px solid var(--line);text-align:left}
+.dashboard-table th{background:rgba(13,148,96,.12)}
+.dashboard-empty{padding:2rem;text-align:center;color:var(--mute);background:var(--card);border:2px dashed var(--line);border-radius:14px}
 </style></head><body>
+
+<div id="teacherDashboard">
+  <div class="dashboard-wrap">
+    <div class="dashboard-head">
+      <div>
+        <span class="tag">Teacher Dashboard</span>
+        <h1 style="margin-top:.35em">Grade 8 · AI Lesson Tracking</h1>
+        <p style="color:var(--mute)">View attempts recorded on this browser and export them for your records.</p>
+      </div>
+      <div class="dashboard-actions">
+        <button id="exportResultsBtn">Export CSV</button>
+        <button class="secondary" id="clearResultsBtn">Clear Results</button>
+        <button class="secondary" id="closeDashboardBtn">Back to Lesson</button>
+      </div>
+    </div>
+    <div class="dashboard-grid">
+      <div class="stat-card"><span>Total Attempts</span><b id="dashAttempts">0</b></div>
+      <div class="stat-card"><span>Students</span><b id="dashStudents">0</b></div>
+      <div class="stat-card"><span>Average Score</span><b id="dashAverage">0%</b></div>
+      <div class="stat-card"><span>Completed</span><b id="dashCompleted">0</b></div>
+    </div>
+    <div id="dashboardTableWrap"></div>
+  </div>
+</div>
 <div id="registrationScreen">
   <div class="reg-card">
     <span class="tag">Grade 8 · AI Lesson</span>
@@ -59,7 +98,7 @@ nav button:disabled{opacity:.35}nav span{flex:1;text-align:center;color:var(--mu
     <input id="studentClass" type="text" autocomplete="off" placeholder="e.g. 8A">
 
     <p id="regError" class="error"></p>
-    <button class="start-btn" id="startLessonBtn">Start Lesson ▶</button>
+    <button class="start-btn" id="startLessonBtn">Start Lesson ▶</button><br><button type="button" id="teacherDashboardBtn" style="margin-top:.8em;background:transparent;color:var(--g);border:0;font-weight:700;cursor:pointer">Teacher Dashboard</button>
   </div>
 </div>
 
@@ -185,6 +224,112 @@ function startStudentLesson(){
 document.getElementById("startLessonBtn").onclick=startStudentLesson;
 document.getElementById("studentName").addEventListener("keydown",function(e){if(e.key==="Enter")startStudentLesson()});
 document.getElementById("studentClass").addEventListener("keydown",function(e){if(e.key==="Enter")startStudentLesson()});
+
+var TRACK_KEY="aiGrade8TeacherResults_v1";
+var lessonStartedAt=null;
+var answerCorrect=0, answerTotal=0;
+
+function getResults(){
+  try{return JSON.parse(localStorage.getItem(TRACK_KEY)||"[]")}catch(e){return []}
+}
+function saveResults(results){localStorage.setItem(TRACK_KEY,JSON.stringify(results))}
+function recordAnswer(correct){
+  answerTotal++;
+  if(correct) answerCorrect++;
+}
+function resetAttemptTracking(){
+  lessonStartedAt=new Date().toISOString();
+  answerCorrect=0;
+  answerTotal=0;
+}
+function saveStudentResult(){
+  if(!studentName) return;
+  var results=getResults();
+  var score=answerTotal ? Math.round(answerCorrect/answerTotal*100) : 0;
+  results.push({
+    name:studentName,
+    className:studentClass,
+    score:score,
+    correct:answerCorrect,
+    total:answerTotal,
+    completedAt:new Date().toLocaleString(),
+    startedAt:lessonStartedAt
+  });
+  saveResults(results);
+}
+function renderDashboard(){
+  var results=getResults();
+  var students=new Set(results.map(function(r){return r.name+"|"+r.className})).size;
+  var avg=results.length ? Math.round(results.reduce(function(a,r){return a+r.score},0)/results.length) : 0;
+  document.getElementById("dashAttempts").textContent=results.length;
+  document.getElementById("dashStudents").textContent=students;
+  document.getElementById("dashAverage").textContent=avg+"%";
+  document.getElementById("dashCompleted").textContent=results.length;
+  var wrap=document.getElementById("dashboardTableWrap");
+  if(!results.length){
+    wrap.innerHTML='<div class="dashboard-empty">No completed attempts have been recorded on this browser yet.</div>';
+    return;
+  }
+  var rows=results.slice().reverse().map(function(r,idx){
+    return '<tr><td>'+(results.length-idx)+'</td><td>'+escapeHtml(r.name)+'</td><td>'+escapeHtml(r.className)+'</td><td><b>'+r.score+'%</b></td><td>'+r.correct+'/'+r.total+'</td><td>'+escapeHtml(r.completedAt)+'</td></tr>';
+  }).join("");
+  wrap.innerHTML='<div style="overflow:auto"><table class="dashboard-table"><thead><tr><th>#</th><th>Student</th><th>Class</th><th>Score</th><th>Correct</th><th>Completed</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function escapeHtml(v){
+  return String(v).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]});
+}
+function openDashboard(){
+  document.getElementById("registrationScreen").style.display="none";
+  document.getElementById("teacherDashboard").style.display="block";
+  renderDashboard();
+}
+function closeDashboard(){
+  document.getElementById("teacherDashboard").style.display="none";
+  if(studentName){
+    document.getElementById("registrationScreen").style.display="none";
+  }else{
+    document.getElementById("registrationScreen").style.display="flex";
+  }
+}
+document.getElementById("teacherDashboardBtn").onclick=openDashboard;
+document.getElementById("closeDashboardBtn").onclick=closeDashboard;
+document.getElementById("clearResultsBtn").onclick=function(){
+  if(confirm("Clear all locally stored teacher results on this browser?")){
+    localStorage.removeItem(TRACK_KEY); renderDashboard();
+  }
+};
+document.getElementById("exportResultsBtn").onclick=function(){
+  var results=getResults();
+  if(!results.length){alert("There are no results to export.");return}
+  var csv=["Student,Class,Score,Correct,Total,Completed"];
+  results.forEach(function(r){
+    csv.push([r.name,r.className,r.score+"%",r.correct,r.total,r.completedAt].map(function(v){return '"'+String(v).replace(/"/g,'""')+'"'}).join(","));
+  });
+  var blob=new Blob([csv.join("\n")],{type:"text/csv;charset=utf-8"});
+  var a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="AI-Grade8-Teacher-Results.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+document.getElementById("submitWorkBtn").onclick=function(){
+  saveStudentResult();
+  window.open(FORM_URL,"_blank","noopener,noreferrer");
+};
+
+var originalStartStudentLesson=startStudentLesson;
+startStudentLesson=function(){
+  originalStartStudentLesson();
+  if(studentName && studentClass) resetAttemptTracking();
+};
+
+document.querySelectorAll(".opts:not(#ord) button").forEach(function(b){
+  b.addEventListener("click",function(){
+    if(b.hasAttribute("data-ok")) recordAnswer(true);
+    else recordAnswer(false);
+  });
+});
 
 document.getElementById("submitWorkBtn").onclick=function(){
   window.open(FORM_URL,"_blank","noopener,noreferrer");
